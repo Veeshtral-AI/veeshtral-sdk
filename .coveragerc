@@ -1,0 +1,10 @@
+[run]
+source = veeshtral
+omit =
+    */tests/*
+    */examples/*
+
+[report]
+show_missing = true
+skip_covered = false
+fail_under = 80
