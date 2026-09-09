@@ -48,3 +48,16 @@ def test_rejects_dunder_and_calls():
         compile_condition_lambda(lambda ctx: ctx.__class__)  # type: ignore[attr-defined]
     with pytest.raises(CompileError, match="calls"):
         compile_condition_lambda(lambda ctx: abs(ctx.risk_score))  # type: ignore[arg-type]
+
+
+def test_renames_non_ctx_param_without_corrupting_string_literals():
+    expr = compile_condition_lambda(lambda c: c.status == "c")  # type: ignore[misc]
+    assert expr == "ctx.status == 'c'"
+
+
+def test_rejects_ambiguous_multiple_lambdas_same_line():
+    # Two single-arg lambdas on one physical line → must fail closed.
+    with pytest.raises(CompileError, match="ambiguous"):
+        compile_condition_lambda(
+            (lambda ctx: ctx.a, lambda ctx: ctx.b)[0]  # type: ignore[misc]
+        )

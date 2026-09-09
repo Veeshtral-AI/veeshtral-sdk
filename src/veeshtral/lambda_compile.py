@@ -6,8 +6,8 @@ Never eval/exec the callable — source is parsed via AST only.
 from __future__ import annotations
 
 import ast
+import copy
 import inspect
-import re
 import textwrap
 from typing import Any, Callable
 
@@ -58,6 +58,19 @@ class _LambdaValidator(ast.NodeVisitor):
         self.errors.append("comprehensions are not allowed")
 
 
+class _RenameParam(ast.NodeTransformer):
+    """Rename the lambda parameter in the body via AST (never regex on unparsed text)."""
+
+    def __init__(self, old_name: str, new_name: str = "ctx") -> None:
+        self.old_name = old_name
+        self.new_name = new_name
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        if node.id == self.old_name:
+            return ast.copy_location(ast.Name(id=self.new_name, ctx=node.ctx), node)
+        return node
+
+
 def compile_condition_string(text: str) -> str | None:
     """AST-validate a ctx.* string the same way as lambdas (defense-in-depth)."""
     cleaned = str(text or "").strip()
@@ -88,9 +101,29 @@ def compile_condition_string(text: str) -> str | None:
     return body_src
 
 
+def _dedupe_lambdas(lambdas: list[ast.Lambda]) -> list[ast.Lambda]:
+    unique: list[ast.Lambda] = []
+    seen: set[str] = set()
+    for lam in lambdas:
+        key = ast.dump(lam, include_attributes=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(lam)
+    return unique
+
+
+def _file_line(lam: ast.Lambda, source_start: int) -> int | None:
+    lineno = getattr(lam, "lineno", None)
+    if lineno is None:
+        return None
+    return int(lineno) + int(source_start) - 1
+
+
 def _find_lambda_node(fn: Callable[..., Any]) -> ast.Lambda:
     try:
-        src = textwrap.dedent(inspect.getsource(fn))
+        source_lines, source_start = inspect.getsourcelines(fn)
+        src = textwrap.dedent("".join(source_lines))
     except (OSError, TypeError) as exc:
         raise CompileError(
             "cannot read source for condition lambda (define it in a .py file, not REPL/exec)",
@@ -126,14 +159,36 @@ def _find_lambda_node(fn: Callable[..., Any]) -> ast.Lambda:
         for node in ast.walk(tree):
             if isinstance(node, ast.Lambda):
                 lambdas.append(node)
+    lambdas = _dedupe_lambdas(lambdas)
     if not lambdas:
         raise CompileError("could not parse condition lambda source", code="lambda_parse")
-    # Prefer the lambda whose argcount matches the callable
+
     argc = fn.__code__.co_argcount
-    for lam in lambdas:
-        if len(lam.args.args) == argc:
-            return lam
-    return lambdas[0]
+    target_line = int(getattr(fn.__code__, "co_firstlineno", 0) or 0)
+    same_argc = [lam for lam in lambdas if len(lam.args.args) == argc]
+    if not same_argc:
+        raise CompileError("could not parse condition lambda source", code="lambda_parse")
+
+    line_matches = [
+        lam
+        for lam in same_argc
+        if target_line and _file_line(lam, source_start) == target_line
+    ]
+    if len(line_matches) == 1:
+        return line_matches[0]
+    if len(line_matches) > 1:
+        raise CompileError(
+            f"ambiguous condition lambda at line {target_line}: "
+            "multiple distinct lambdas with the same arity on one line",
+            code="lambda_ambiguous",
+        )
+    if len(same_argc) == 1:
+        return same_argc[0]
+    raise CompileError(
+        f"ambiguous condition lambda: {len(same_argc)} distinct candidates with {argc} argument(s); "
+        "define the condition lambda on its own line",
+        code="lambda_ambiguous",
+    )
 
 
 def compile_condition_lambda(fn: Callable[..., Any] | None) -> str | None:
@@ -160,9 +215,11 @@ def compile_condition_lambda(fn: Callable[..., Any] | None) -> str | None:
     if validator.errors:
         raise CompileError("; ".join(validator.errors), code="lambda_forbidden")
 
-    body_src = ast.unparse(lam.body)
+    body = copy.deepcopy(lam.body)
     if ctx_name != "ctx":
-        body_src = re.sub(rf"\b{re.escape(ctx_name)}\b", "ctx", body_src)
+        body = _RenameParam(ctx_name, "ctx").visit(body)
+        ast.fix_missing_locations(body)
+    body_src = ast.unparse(body)
 
     if "ctx." not in body_src and body_src.strip() != "ctx":
         raise CompileError("condition must reference ctx.* fields", code="lambda_no_ctx")
