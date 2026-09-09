@@ -141,8 +141,17 @@ class Workflow:
             params={"name_eq": self.name, "limit": 10, "include_total": False},
         )
         if isinstance(data, dict):
-            return list(data.get("items") or [])
-        return list(data or [])
+            items = list(data.get("items") or [])
+        else:
+            items = list(data or [])
+        # Defense-in-depth: older servers may ignore name_eq and return a page of
+        # recent workflows — never treat those as upsert matches.
+        needle = self.name.strip().lower()
+        return [
+            i
+            for i in items
+            if isinstance(i, dict) and str(i.get("name") or "").strip().lower() == needle
+        ]
 
     def _patch_draft(
         self,

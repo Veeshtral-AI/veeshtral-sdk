@@ -32,9 +32,27 @@ def validate_base_url(base_url: str) -> str:
     if parsed.scheme not in ("http", "https"):
         raise AuthError("base_url must be http or https")
     host = (parsed.hostname or "").lower()
-    if parsed.scheme == "http" and host not in ("localhost", "127.0.0.1", "::1"):
+    # Plain HTTP is only for local / compose networks — never for public hosts.
+    local_http_hosts = frozenset(
+        {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            "host.docker.internal",
+            "backend",  # docker-compose service name
+        }
+    )
+    allow_insecure = os.environ.get("VEESHTRAL_ALLOW_INSECURE_HTTP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    # Single-label hostnames (e.g. "backend") are compose DNS, not public sites.
+    compose_dns = bool(host) and "." not in host and host != "localhost"
+    if parsed.scheme == "http" and host not in local_http_hosts and not compose_dns and not allow_insecure:
         raise AuthError("base_url must use https outside localhost")
     return raw
+
 
 
 def credentials_from_env() -> Credentials:
