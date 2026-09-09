@@ -14,7 +14,48 @@ from veeshtral.resources import Agent, LiveSource, QualityRubric, Skill
 from veeshtral.workflow import Workflow
 
 
-def test_jwt_run_always_sends_idempotency_key():
+def test_validate_base_url_allows_compose_http():
+    from veeshtral.auth import validate_base_url
+
+    assert validate_base_url("http://backend:8000") == "http://backend:8000"
+    assert validate_base_url("http://host.docker.internal:8000") == "http://host.docker.internal:8000"
+
+
+def test_find_by_name_filters_exact_when_server_ignores_name_eq():
+    """Older servers ignoring name_eq must not produce false ambiguous upserts."""
+    import httpx
+    from veeshtral.client import Client
+    from veeshtral.workflow import Workflow
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/api/workflows":
+            # Simulate pre-#552 list that ignores name_eq.
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": 1, "name": "other"},
+                        {"id": 2, "name": "target-wf"},
+                        {"id": 3, "name": "also-other"},
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    c = Client(base_url="http://127.0.0.1:8000")
+    c.credentials.email = "a@b.com"
+    c.credentials.password = "x"
+    c._http = httpx.Client(
+        base_url="http://127.0.0.1:8000", transport=transport, follow_redirects=False
+    )
+    wf = Workflow(name="target-wf", client=c, steps=[])
+    matches = wf._find_by_name(c)
+    assert len(matches) == 1
+    assert matches[0]["id"] == 2
+
     """502 retries must not double-run — JWT path now auto-mints Idempotency-Key."""
     seen: dict[str, str | None] = {"idem": None}
 
