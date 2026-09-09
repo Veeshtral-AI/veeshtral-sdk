@@ -85,6 +85,13 @@ def hitl_gate(
     expr = _normalize_condition(condition)
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
+        existing = get_meta(fn)
+        if isinstance(existing, StepMeta) and existing.kind == "agent":
+            raise CompileError(
+                "cannot stack @hitl_gate on @agent; use separate steps "
+                "(HITL must be its own node after the agent)",
+                code="decorator_conflict",
+            )
         meta = StepMeta(
             kind="hitl",
             fn=fn,
@@ -102,17 +109,9 @@ def _normalize_condition(condition: ConditionInput) -> str | None:
         return None
     if callable(condition):
         return compile_condition_lambda(condition)
-    text = str(condition).strip()
-    if not text:
-        return None
-    if len(text) > 4096:
-        raise CompileError("condition exceeds 4096 characters", code="condition_too_long")
-    if "ctx." not in text and text != "ctx":
-        raise CompileError(
-            "branch/HITL condition must be a ctx.* expression (or lambda ctx: ...)",
-            code="condition_no_ctx",
-        )
-    return text
+    from veeshtral.lambda_compile import compile_condition_string
+
+    return compile_condition_string(str(condition))
 
 
 def branch(

@@ -198,6 +198,12 @@ class Skill:
         self.key = _normalize_key(self.key)
         if self.id is not None and int(self.id) <= 0:
             raise CompileError("skill id must be a positive integer", code="bad_skill_id")
+        body = self.body_markdown or ""
+        if len(body.encode("utf-8")) > 1_048_576:
+            raise CompileError(
+                "skill body_markdown exceeds 1 MiB UTF-8",
+                code="skill_body_too_large",
+            )
 
     def _lookup(self, c: Client) -> dict[str, Any] | None:
         # Prefer ACTIVE tenant-owned exact key (never adopt catalog or draft twins).
@@ -279,6 +285,8 @@ class QualityRubric:
 
     def __post_init__(self) -> None:
         self.key = _normalize_key(self.key)
+        if self.id is not None and int(self.id) <= 0:
+            raise CompileError("rubric id must be a positive integer", code="bad_rubric_id")
         if self.on_fail not in ("continue", "hitl", "block"):
             raise CompileError("on_fail must be continue|hitl|block", code="bad_on_fail")
 
@@ -358,3 +366,15 @@ class Memory:
 class LiveSource:
     kind: str = "inbound_webhook"
     max_events: int = 10
+
+    def __post_init__(self) -> None:
+        try:
+            n = int(self.max_events)
+        except (TypeError, ValueError) as exc:
+            raise CompileError("max_events must be an integer", code="bad_max_events") from exc
+        if n < 1 or n > 10_000:
+            raise CompileError(
+                "max_events must be between 1 and 10000",
+                code="bad_max_events",
+            )
+        self.max_events = n

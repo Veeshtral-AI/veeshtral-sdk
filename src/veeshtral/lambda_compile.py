@@ -42,6 +42,12 @@ class _LambdaValidator(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Load):
             self.errors.append(f"name '{node.id}' is not allowed; use {self.ctx_name}.field")
 
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        # Align with platform gate evaluator (no Pow / MatMult).
+        if isinstance(node.op, (ast.Pow, ast.MatMult)):
+            self.errors.append(f"operator {type(node.op).__name__} is not allowed in gate conditions")
+        self.generic_visit(node)
+
     def visit_ListComp(self, node: ast.ListComp) -> None:
         self.errors.append("comprehensions are not allowed")
 
@@ -50,6 +56,36 @@ class _LambdaValidator(ast.NodeVisitor):
 
     def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
         self.errors.append("comprehensions are not allowed")
+
+
+def compile_condition_string(text: str) -> str | None:
+    """AST-validate a ctx.* string the same way as lambdas (defense-in-depth)."""
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > _MAX_CONDITION_LEN:
+        raise CompileError(
+            f"condition exceeds {_MAX_CONDITION_LEN} characters",
+            code="condition_too_long",
+        )
+    try:
+        tree = ast.parse(cleaned, mode="eval")
+    except SyntaxError as exc:
+        raise CompileError(
+            f"invalid condition expression: {exc.msg}",
+            code="condition_syntax",
+        ) from exc
+    validator = _LambdaValidator("ctx")
+    validator.visit(tree)
+    if validator.errors:
+        raise CompileError("; ".join(validator.errors), code="condition_forbidden")
+    body_src = ast.unparse(tree)
+    if "ctx." not in body_src and body_src.strip() != "ctx":
+        raise CompileError(
+            "branch/HITL condition must be a ctx.* expression (or lambda ctx: ...)",
+            code="condition_no_ctx",
+        )
+    return body_src
 
 
 def _find_lambda_node(fn: Callable[..., Any]) -> ast.Lambda:

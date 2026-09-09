@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veeshtral"
-version = "0.1.2"
+version = "0.1.3"
 description = "Native Veeshtral Python SDK — decorator workflows on the Studio graph engine"
 readme = "README.md"
 requires-python = ">=3.11"
