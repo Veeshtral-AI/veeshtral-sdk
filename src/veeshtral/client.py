@@ -111,12 +111,23 @@ class Client:
             json={"email": self.credentials.email, "password": self.credentials.password},
             follow_redirects=False,
         )
+        content = resp.content or b""
+        if len(content) > _MAX_RESPONSE_BYTES:
+            raise AuthError(
+                f"login response exceeds {_MAX_RESPONSE_BYTES} bytes; refusing to parse",
+                status_code=resp.status_code,
+            )
         if resp.status_code >= 400:
             raise AuthError(
                 f"login failed: {resp.status_code}",
                 status_code=resp.status_code,
             )
-        data = resp.json()
+        try:
+            data = resp.json() if content else {}
+        except Exception as exc:
+            raise AuthError("login response is not JSON") from exc
+        if not isinstance(data, dict):
+            raise AuthError("login response is not a JSON object")
         token = data.get("access_token") or data.get("token")
         if not token:
             raise AuthError("login response missing access_token")
@@ -169,6 +180,15 @@ class Client:
                 f"{method} {path} requires JWT; configure email/password or access_token"
             )
 
+        # Path-only requests — absolute URLs would bypass base_url (SSRF via caller).
+        path_s = str(path or "")
+        if "://" in path_s or path_s.startswith("//"):
+            raise AuthError(
+                "request path must be relative (e.g. /api/workflows); absolute URLs are rejected",
+            )
+        if not path_s.startswith("/"):
+            raise AuthError("request path must start with '/'")
+
         if (
             (prefer_api_key or self.uses_api_key)
             and method.upper() == "POST"
@@ -178,9 +198,10 @@ class Client:
         ):
             idempotency_key = self.new_idempotency_key(prefix="wf-create")
 
+        # Always mint a run Idempotency-Key so 502/503 retries cannot double-execute
+        # (JWT authoring path previously omitted the header — HIGH duplicate-run risk).
         if (
-            (prefer_api_key or self.uses_api_key)
-            and method.upper() == "POST"
+            method.upper() == "POST"
             and path.rstrip("/").endswith("/run")
             and not idempotency_key
         ):
@@ -234,7 +255,12 @@ class Client:
                     time.sleep(backoff)
                     continue
 
-            return self._parse(resp)
+            parsed = self._parse(resp)
+            # Successful request clears the one-shot refresh latch so long-lived
+            # clients can re-login again on a later token expiry.
+            if resp.status_code < 400:
+                self._refreshed_once = False
+            return parsed
 
     def _parse(self, resp: httpx.Response) -> Any:
         if resp.status_code == 204:

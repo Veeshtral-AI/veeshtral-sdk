@@ -337,6 +337,18 @@ class Workflow:
             )
 
         job_id = run.get("job_id")
+        try:
+            job_id_int = int(job_id) if job_id is not None else 0
+        except (TypeError, ValueError):
+            job_id_int = 0
+        if job_id_int <= 0:
+            raise ApiError(
+                "POST /run response missing a positive job_id; refusing to treat as complete",
+                status_code=None,
+                typ="missing_job_id",
+                body=run if isinstance(run, dict) else None,
+            )
+        job_id = job_id_int
         status = "queued"
         raw_job: dict[str, Any] = {}
         deadline = time.time() + poll_timeout_s

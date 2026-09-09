@@ -45,14 +45,27 @@ def _resolve_skill_ids(skills: list[Any], *, allow_unresolved: bool = False) -> 
     out: list[int] = []
     for s in skills:
         if isinstance(s, int):
-            out.append(s)
+            sid = int(s)
+            if sid <= 0 and not allow_unresolved:
+                raise CompileError("skill id must be a positive integer", code="bad_skill_id")
+            if sid > 0:
+                out.append(sid)
+            elif allow_unresolved:
+                continue
+            else:
+                raise CompileError("skill id must be a positive integer", code="bad_skill_id")
         else:
             sid = getattr(s, "id", None)
             if sid is None:
                 if allow_unresolved:
                     continue
                 raise CompileError("skill not resolved", code="unresolved_skill")
-            out.append(int(sid))
+            sid_i = int(sid)
+            if sid_i <= 0:
+                if allow_unresolved:
+                    continue
+                raise CompileError("skill id must be a positive integer", code="bad_skill_id")
+            out.append(sid_i)
     if len(out) > 8:
         raise CompileError("at most 8 skills per agent", code="skill_limit")
     return out
@@ -383,6 +396,10 @@ def _build_graph_from_steps(
                 rid = 0
             else:
                 raise CompileError("quality rubric not resolved", code="unresolved_rubric")
+        else:
+            rid = int(rid)
+            if rid <= 0 and not allow_unresolved:
+                raise CompileError("rubric id must be a positive integer", code="bad_rubric_id")
         qid = f"qg-{idx + 1}"
         snapshot = {
             "rules_text": getattr(rubric, "rules_text", "") or "",
