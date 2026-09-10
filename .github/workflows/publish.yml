@@ -1,0 +1,117 @@
+# Publish veeshtral to PyPI via Trusted Publishing (OIDC).
+# Triggers: version tags v* (production) or workflow_dispatch (TestPyPI / dry-run).
+#
+# One-time setup (required before first tag publish):
+# 1. Create GitHub Environments: `pypi` and `testpypi` (recommend required reviewers on `pypi`).
+# 2. On https://pypi.org (and TestPyPI), add a Trusted Publisher:
+#      Owner: Veeshtral-AI
+#      Repository: veeshtral-sdk
+#      Workflow: publish.yml
+#      Environment: pypi  (or testpypi)
+# 3. Release: bump version in pyproject.toml + src/veeshtral/__init__.py → merge → tag vX.Y.Z → push tag.
+
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target"
+        required: true
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          EXPECTED="${TAG#v}"
+          PYPROJECT_VER="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          INIT_VER="$(python -c "import pathlib,re; t=pathlib.Path('src/veeshtral/__init__.py').read_text(); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', t).group(1))")"
+          echo "tag=$TAG expected=$EXPECTED pyproject=$PYPROJECT_VER __init__=$INIT_VER"
+          test "$PYPROJECT_VER" = "$EXPECTED"
+          test "$INIT_VER" = "$EXPECTED"
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Twine check
+        run: python -m twine check dist/*
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/veeshtral
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/veeshtral
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Fail on re-upload of an existing version (do not skip-existing on prod).

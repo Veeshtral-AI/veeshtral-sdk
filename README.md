@@ -7,8 +7,18 @@ This repository is the **release surface** for the `veeshtral` package ([MIT](LI
 ## Install
 
 ```bash
+pip install veeshtral
+```
+
+Requires Python ≥ 3.11. Optional LangGraph adapter (future): `pip install "veeshtral[langgraph]"` — see [#2](https://github.com/Veeshtral-AI/veeshtral-sdk/issues/2).
+
+From a clone (contributors):
+
+```bash
 pip install -e ".[dev]"
 ```
+
+Release / PyPI publish: see [`CONTRIBUTING.md`](CONTRIBUTING.md#releasing-to-pypi).
 
 ## Auth
 
