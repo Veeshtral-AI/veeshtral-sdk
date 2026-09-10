@@ -10,3 +10,4 @@ alwaysApply: true
 - Do not use `git push origin main` for feature work.
 - After merge, delete the feature branch.
 - See `CONTRIBUTING.md` for the full policy.
+- **Note:** On this private free-tier repo, GitHub branch protection/rulesets are unavailable — policy is convention + this rule only until the repo is public or the org upgrades. Do not treat docs as server-side enforcement.
