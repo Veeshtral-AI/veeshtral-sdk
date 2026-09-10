@@ -1,0 +1,12 @@
+---
+description: Require feature-branch PRs into main; never push straight to main
+alwaysApply: true
+---
+
+# Git workflow (veeshtral-sdk)
+
+- **Never commit or push directly to `main`.**
+- Always: `git checkout -b feat|fix|chore/<name>` from up-to-date `main` → commit → `git push -u origin HEAD` → `gh pr create --base main` → merge after CI green.
+- Do not use `git push origin main` for feature work.
+- After merge, delete the feature branch.
+- See `CONTRIBUTING.md` for the full policy.
