@@ -2,7 +2,7 @@
 
 Native, decorator-based Python SDK for authoring **Veeshtral Workflow Studio** graphs in code and running them on the existing execution engine (Quality Gates, HITL, Skills, Memory, Live sources, Marketplace agents).
 
-This repository is the **release surface** for the `veeshtral` package ([MIT](LICENSE)). Platform API hooks (`agent_key`, workflow `name_eq`) live in the core Veeshtral / sandhi_ai backend.
+This repository is the **release surface** for the `veeshtral` package ([MIT](LICENSE)). Platform API hooks (`agent_key`, workflow `name_eq`) live in the core Veeshtral  backend.
 
 ## Install
 
