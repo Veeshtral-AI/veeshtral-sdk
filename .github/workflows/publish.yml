@@ -26,6 +26,11 @@ on:
           - testpypi
           - pypi
         default: testpypi
+      version:
+        description: "Required when target is pypi — must equal pyproject/__version__ (e.g. 0.1.3). Optional for testpypi."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -45,17 +50,38 @@ jobs:
       - name: Install build tools
         run: python -m pip install --upgrade pip build twine
 
+      - name: Verify package versions are consistent
+        id: versions
+        run: |
+          set -euo pipefail
+          PYPROJECT_VER="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          INIT_VER="$(python -c "import pathlib,re; t=pathlib.Path('src/veeshtral/__init__.py').read_text(); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', t).group(1))")"
+          echo "pyproject=$PYPROJECT_VER __init__=$INIT_VER"
+          test "$PYPROJECT_VER" = "$INIT_VER"
+          echo "package_version=$PYPROJECT_VER" >> "$GITHUB_OUTPUT"
+
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           EXPECTED="${TAG#v}"
-          PYPROJECT_VER="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
-          INIT_VER="$(python -c "import pathlib,re; t=pathlib.Path('src/veeshtral/__init__.py').read_text(); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', t).group(1))")"
-          echo "tag=$TAG expected=$EXPECTED pyproject=$PYPROJECT_VER __init__=$INIT_VER"
-          test "$PYPROJECT_VER" = "$EXPECTED"
-          test "$INIT_VER" = "$EXPECTED"
+          PKG="${{ steps.versions.outputs.package_version }}"
+          echo "tag=$TAG expected=$EXPECTED package=$PKG"
+          test "$PKG" = "$EXPECTED"
+
+      - name: Verify workflow_dispatch pypi confirms package version
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi'
+        run: |
+          set -euo pipefail
+          CONFIRM="${{ inputs.version }}"
+          PKG="${{ steps.versions.outputs.package_version }}"
+          if [ -z "$CONFIRM" ]; then
+            echo "::error::Manual publish to pypi requires the 'version' input (must equal $PKG)."
+            exit 1
+          fi
+          echo "confirm=$CONFIRM package=$PKG"
+          test "$CONFIRM" = "$PKG"
 
       - name: Build distributions
         run: python -m build

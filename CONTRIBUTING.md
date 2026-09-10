@@ -27,6 +27,21 @@ All changes go through a short-lived branch and a pull request:
 
 `main` is the release surface for the `veeshtral` package (and future PyPI tags). PRs give review, CI gates, and a clear history before anything is tagged or published.
 
+### Enforcement reality (important)
+
+This policy is **convention + Cursor rule** today, **not** server-side branch protection.
+
+GitHub **branch protection and rulesets are unavailable** on private repos under the current plan tier (`403` from the protection/rulesets APIs). Anyone with push access can still `git push origin main` via plain git, another editor, or a token.
+
+To actually enforce “PR required”:
+
+1. Make the repository **public** (branch protection/rulesets become free), or
+2. Upgrade to a GitHub plan that supports protection on **private** repos,
+
+then enable: require PR before merge, require status checks (`test`), dismiss stale reviews, block force-pushes to `main`.
+
+Until then, treat direct pushes to `main` as a process violation and revert if they happen.
+
 ### Exceptions
 
 - Initial bootstrap of an empty repo (already done).
@@ -76,6 +91,10 @@ Actions → **Publish** → Run workflow → target `testpypi`.
 ```bash
 pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ veeshtral
 ```
+
+### Manual production publish (discouraged)
+
+Prefer tagging. If you must use Actions → **Publish** → target `pypi`, set the **`version`** input to the exact package version (e.g. `0.1.3`). The workflow fails closed if that input is missing or mismatched. Tag pushes already enforce tag ↔ version equality.
 
 ### Manual build (optional)
 
