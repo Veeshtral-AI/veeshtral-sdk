@@ -135,6 +135,8 @@ support = veeshtral.marketplace.install("acme-support-triage-v2")
 python -m pytest tests -c pytest.ini --cov=veeshtral --cov-config=.coveragerc --cov-fail-under=80
 ```
 
+**PRs only:** do not push commits directly to `main`. Branch → PR → CI → merge. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 See [`examples/invoice_review.py`](examples/invoice_review.py),
 [`examples/branching.py`](examples/branching.py), and
 [`examples/complex_ap_invoice.py`](examples/complex_ap_invoice.py).
