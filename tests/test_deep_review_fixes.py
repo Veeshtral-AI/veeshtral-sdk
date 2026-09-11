@@ -138,6 +138,17 @@ def test_live_source_max_events_bounds():
     assert LiveSource(max_events=5).max_events == 5
 
 
+def test_live_source_voice_hold_bounds():
+    with pytest.raises(CompileError, match="max_hold"):
+        LiveSource(kind="inbound_phone", max_hold_minutes=0)
+    with pytest.raises(CompileError, match="max_hold"):
+        LiveSource(kind="inbound_phone", max_hold_minutes=99)
+    src = LiveSource(kind="voice", max_hold_minutes=10)
+    assert src.kind == "inbound_phone"
+    assert src.is_voice() is True
+    assert src.max_hold_minutes == 10
+
+
 def test_rubric_and_skill_reject_nonpositive_ids():
     with pytest.raises(CompileError, match="rubric id"):
         QualityRubric(key="r", rules_text="x", id=0)

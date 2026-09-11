@@ -203,8 +203,45 @@ def test_memory_and_live_compile():
     g2 = wf2.compile()
     assert any(n["type"] == "stream_source" for n in g2["nodes"])
 
-    with pytest.raises(CompileError, match="550"):
+    with pytest.raises(CompileError, match="not supported"):
         Workflow.from_flow(flow).attach_live_source(LiveSource(kind="meeting")).compile()
+
+    wf3 = Workflow.from_flow(flow)
+    wf3.attach_live_source(LiveSource(kind="inbound_phone", max_hold_minutes=5))
+    g3 = wf3.compile()
+    assert any(n["type"] == "voice_channel" for n in g3["nodes"])
+    voice = next(n for n in g3["nodes"] if n["type"] == "voice_channel")
+    assert voice["config"]["channel"] == "inbound_phone"
+    assert voice["config"]["max_hold_minutes"] == 5
+
+
+def test_outbound_voice_requires_consent():
+    a = Agent(key="ocr", id=1, api_endpoint="http://127.0.0.1:9/v1")
+
+    @veeshtral.agent(a, task="t")
+    def review(invoice_text: str) -> dict: ...
+
+    @veeshtral.workflow_fn(name="out-voice")
+    def flow(invoice_text: str):
+        return review(invoice_text)
+
+    with pytest.raises(CompileError, match="outbound_number_consented"):
+        Workflow.from_flow(flow).attach_live_source(
+            LiveSource(kind="outbound_phone", phone_number="+15551212")
+        ).compile()
+
+    g = (
+        Workflow.from_flow(flow)
+        .attach_live_source(
+            LiveSource(
+                kind="outbound_phone",
+                phone_number="+15551212",
+                outbound_number_consented=True,
+            )
+        )
+        .compile()
+    )
+    assert any(n["type"] == "voice_channel" for n in g["nodes"])
 
 
 def test_branch_decorator_marks_edge():

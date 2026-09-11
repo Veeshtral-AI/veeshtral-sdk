@@ -117,6 +117,27 @@ Marketplace agents are **link-only** (never creates a BYO agent):
 support = veeshtral.marketplace.install("acme-support-triage-v2")
 ```
 
+### Live sources (stream or voice)
+
+Attach exactly one live ingress before publish:
+
+```python
+# Webhook / Kafka / SSE / WebSocket → stream_source node
+wf.attach_live_source(veeshtral.LiveSource(kind="inbound_webhook", max_events=50))
+
+# Phone or browser voice → voice_channel node
+wf.attach_live_source(
+    veeshtral.LiveSource(
+        kind="inbound_phone",  # or outbound_phone / browser
+        max_hold_minutes=5,    # HITL hold cap (1–30)
+        barge_in=True,
+    )
+)
+```
+
+`outbound_phone` also requires `phone_number` and `outbound_number_consented=True`.
+A workflow cannot mix `stream_source` and `voice_channel`.
+
 ## Design notes
 
 - Compiles to the same `nodes`/`edges` JSON the canvas uses (`planner_assigned_task`, `wire_role=scope` for QG).

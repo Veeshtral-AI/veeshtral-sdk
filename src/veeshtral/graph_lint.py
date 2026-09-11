@@ -23,11 +23,12 @@ ALLOWED_NODE_TYPES = frozenset(
         "tool",
         "mcp",
         "stream_source",
+        "voice_channel",
         "quality_gate",
         "end",
     }
 )
-FLOW_TYPES = frozenset({"agent", "hitl", "stream_source", "end"})
+FLOW_TYPES = frozenset({"agent", "hitl", "stream_source", "voice_channel", "end"})
 AUX_TYPES = frozenset({"tool", "mcp", "memory", "rag", "quality_gate"})
 FORBIDDEN_AGENT_KEYS = frozenset(
     {
@@ -101,6 +102,18 @@ def lint_graph(graph: dict[str, Any]) -> dict[str, Any]:
         raise CompileError("graph must have exactly one trigger", code="trigger_count")
     if not any(str(n.get("type")) == "end" for n in nodes):
         raise CompileError("graph must have at least one end node", code="missing_end")
+
+    stream_n = sum(1 for n in nodes if str(n.get("type")) == "stream_source")
+    voice_n = sum(1 for n in nodes if str(n.get("type")) == "voice_channel")
+    if stream_n > 1:
+        raise CompileError("at most one stream_source node allowed", code="stream_source_count")
+    if voice_n > 1:
+        raise CompileError("at most one voice_channel node allowed", code="voice_channel_count")
+    if stream_n and voice_n:
+        raise CompileError(
+            "graph cannot contain both stream_source and voice_channel",
+            code="live_ingress_conflict",
+        )
 
     # Edge checks + adjacency for flow DAG
     adj: dict[str, list[str]] = {i: [] for i in ids}

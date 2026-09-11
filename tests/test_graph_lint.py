@@ -74,3 +74,41 @@ def test_node_limit():
     edges.append({"source": prev, "target": "end-1"})
     with pytest.raises(CompileError, match="nodes"):
         lint_graph({"nodes": nodes, "edges": edges})
+
+
+def test_voice_channel_allowed_and_xor_with_stream():
+    g = {
+        "nodes": [
+            {"id": "trigger-1", "type": "trigger", "config": {}},
+            {
+                "id": "voice-1",
+                "type": "voice_channel",
+                "config": {"channel": "inbound_phone", "max_hold_minutes": 5},
+            },
+            {"id": "a1", "type": "agent", "config": {"agent_id": 1, "planner_assigned_task": "t"}},
+            {"id": "end-1", "type": "end", "config": {}},
+        ],
+        "edges": [
+            {"source": "trigger-1", "target": "voice-1"},
+            {"source": "voice-1", "target": "a1"},
+            {"source": "a1", "target": "end-1"},
+        ],
+    }
+    assert lint_graph(g)["nodes"]
+
+    bad = {
+        "nodes": [
+            {"id": "trigger-1", "type": "trigger", "config": {}},
+            {"id": "stream-1", "type": "stream_source", "config": {"source_kind": "inbound_webhook"}},
+            {"id": "voice-1", "type": "voice_channel", "config": {"channel": "browser"}},
+            {"id": "a1", "type": "agent", "config": {"agent_id": 1, "planner_assigned_task": "t"}},
+            {"id": "end-1", "type": "end", "config": {}},
+        ],
+        "edges": [
+            {"source": "trigger-1", "target": "stream-1"},
+            {"source": "stream-1", "target": "a1"},
+            {"source": "a1", "target": "end-1"},
+        ],
+    }
+    with pytest.raises(CompileError, match="both stream_source and voice_channel"):
+        lint_graph(bad)

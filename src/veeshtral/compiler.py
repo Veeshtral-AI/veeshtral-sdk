@@ -303,31 +303,81 @@ def _build_graph_from_steps(
     spine_target = first_id
 
     if live_source is not None:
-        kind = getattr(live_source, "kind", None) or "inbound_webhook"
-        unsupported = {"meeting_source", "voice_channel", "meeting", "voice"}
-        if str(kind) in unsupported:
+        kind = str(getattr(live_source, "kind", None) or "inbound_webhook").strip().lower()
+        unsupported = {"meeting_source", "meeting"}
+        if kind in unsupported:
             raise CompileError(
-                f"live source kind {kind!r} not supported until #550/#551",
+                f"live source kind {kind!r} is not supported yet",
                 code="live_kind_unsupported",
             )
-        allowed = {"inbound_webhook", "kafka", "sse_pull", "websocket_pull"}
-        if str(kind) not in allowed:
+        stream_kinds = frozenset({"inbound_webhook", "kafka", "sse_pull", "websocket_pull"})
+        voice_kinds = frozenset({"inbound_phone", "outbound_phone", "browser"})
+        if kind not in stream_kinds and kind not in voice_kinds:
             raise CompileError(f"unknown live source kind: {kind}", code="live_kind")
-        src_id = "stream-1"
-        nodes.insert(
-            1,
-            {
-                "id": src_id,
-                "type": "stream_source",
-                "config": {
-                    "source_kind": str(kind),
-                    "feeds_agent_node_id": first_id,
-                    "max_events": getattr(live_source, "max_events", 10) or 10,
-                    "max_in_flight": 2,
-                    "max_runtime_hours": 1,
+
+        if kind in voice_kinds:
+            if kind == "outbound_phone":
+                phone = str(getattr(live_source, "phone_number", None) or "").strip()
+                if not phone:
+                    raise CompileError(
+                        "outbound_phone requires phone_number",
+                        code="voice_phone_required",
+                    )
+                if not bool(getattr(live_source, "outbound_number_consented", False)):
+                    raise CompileError(
+                        "outbound_phone requires outbound_number_consented=True",
+                        code="voice_outbound_consent_required",
+                    )
+            src_id = "voice-1"
+            hold = int(getattr(live_source, "max_hold_minutes", 5) or 5)
+            hold = max(1, min(30, hold))
+            voice_cfg: dict[str, Any] = {
+                "channel": kind,
+                "feeds_agent_node_id": first_id,
+                "max_events": getattr(live_source, "max_events", 10) or 10,
+                "max_in_flight": 2,
+                "max_runtime_hours": 1,
+                "max_hold_minutes": hold,
+                "barge_in": bool(getattr(live_source, "barge_in", True)),
+                "max_silence_ms": int(getattr(live_source, "max_silence_ms", 12000) or 0),
+                "stt_provider": str(getattr(live_source, "stt_provider", None) or "deepgram"),
+                "tts_provider": str(getattr(live_source, "tts_provider", None) or "elevenlabs"),
+                "hitl_stream_behavior": "pause_source",
+                "live_stream_fallback": "fail_step",
+                "outbound_number_consented": bool(
+                    getattr(live_source, "outbound_number_consented", False)
+                ),
+            }
+            phone = str(getattr(live_source, "phone_number", None) or "").strip()
+            if phone:
+                voice_cfg["phone_number"] = phone
+            vid = str(getattr(live_source, "voice_id", None) or "").strip()
+            if vid:
+                voice_cfg["voice_id"] = vid
+            nodes.insert(
+                1,
+                {
+                    "id": src_id,
+                    "type": "voice_channel",
+                    "config": voice_cfg,
                 },
-            },
-        )
+            )
+        else:
+            src_id = "stream-1"
+            nodes.insert(
+                1,
+                {
+                    "id": src_id,
+                    "type": "stream_source",
+                    "config": {
+                        "source_kind": kind,
+                        "feeds_agent_node_id": first_id,
+                        "max_events": getattr(live_source, "max_events", 10) or 10,
+                        "max_in_flight": 2,
+                        "max_runtime_hours": 1,
+                    },
+                },
+            )
         edges = [
             e
             for e in edges
@@ -341,8 +391,11 @@ def _build_graph_from_steps(
     if memory is not None:
         mem_id = "memory-1"
         insert_at = 1
-        if any(n.get("id") == "stream-1" for n in nodes):
-            insert_at = next(i for i, n in enumerate(nodes) if n["id"] == "stream-1") + 1
+        live_ids = {"stream-1", "voice-1"}
+        if any(n.get("id") in live_ids for n in nodes):
+            insert_at = (
+                next(i for i, n in enumerate(nodes) if n.get("id") in live_ids) + 1
+            )
         nodes.insert(
             insert_at,
             {
@@ -357,7 +410,7 @@ def _build_graph_from_steps(
             },
         )
         if live_source is not None:
-            # Live engine jumps stream → agent via feeds_agent_node_id. Keep that flow
+            # Live engine jumps ingress → agent via feeds_agent_node_id. Keep that flow
             # edge and attach memory as scope only (Studio-compatible under load).
             for s in steps_in_order:
                 if s.kind != "agent":
