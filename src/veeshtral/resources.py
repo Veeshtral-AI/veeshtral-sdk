@@ -364,8 +364,24 @@ class Memory:
 
 @dataclass
 class LiveSource:
+    """Live ingress for a workflow: webhook/Kafka/SSE/WebSocket or phone/browser voice.
+
+    Stream kinds emit a ``stream_source`` node. Voice kinds
+    (``inbound_phone`` / ``outbound_phone`` / ``browser``) emit a ``voice_channel``
+    node. A graph may include at most one live ingress.
+    """
+
     kind: str = "inbound_webhook"
     max_events: int = 10
+    # Voice-channel fields (ignored for stream kinds)
+    phone_number: str | None = None
+    outbound_number_consented: bool = False
+    max_hold_minutes: int = 5
+    barge_in: bool = True
+    max_silence_ms: int = 12000
+    stt_provider: str = "deepgram"
+    tts_provider: str = "elevenlabs"
+    voice_id: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -378,3 +394,36 @@ class LiveSource:
                 code="bad_max_events",
             )
         self.max_events = n
+        try:
+            hold = int(self.max_hold_minutes)
+        except (TypeError, ValueError) as exc:
+            raise CompileError("max_hold_minutes must be an integer", code="bad_max_hold") from exc
+        if hold < 1 or hold > 30:
+            raise CompileError(
+                "max_hold_minutes must be between 1 and 30",
+                code="bad_max_hold",
+            )
+        self.max_hold_minutes = hold
+        try:
+            silence = int(self.max_silence_ms)
+        except (TypeError, ValueError) as exc:
+            raise CompileError("max_silence_ms must be an integer", code="bad_max_silence") from exc
+        if silence < 0:
+            raise CompileError("max_silence_ms must be >= 0", code="bad_max_silence")
+        self.max_silence_ms = silence
+        self.kind = str(self.kind or "inbound_webhook").strip().lower()
+        # Aliases → canonical voice channel
+        if self.kind in ("voice", "voice_channel"):
+            self.kind = "inbound_phone"
+        self.stt_provider = str(self.stt_provider or "deepgram").strip().lower() or "deepgram"
+        self.tts_provider = str(self.tts_provider or "elevenlabs").strip().lower() or "elevenlabs"
+        if self.phone_number is not None:
+            self.phone_number = str(self.phone_number).strip() or None
+        if self.voice_id is not None:
+            self.voice_id = str(self.voice_id).strip() or None
+        self.outbound_number_consented = bool(self.outbound_number_consented)
+        self.barge_in = bool(self.barge_in)
+
+    def is_voice(self) -> bool:
+        return self.kind in ("inbound_phone", "outbound_phone", "browser")
+
